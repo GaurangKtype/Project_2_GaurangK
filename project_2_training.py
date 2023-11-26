@@ -1,45 +1,63 @@
 # Importing Libraries
 import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras import layers, models
-import matplotlib.pyplot as plt
 from tensorflow.keras.regularizers import l2
+from tensorflow.keras.optimizers import Adam
+import matplotlib.pyplot as plt
 
-# Loading all the datasets
+# Define image shape and directory paths
 image_shape = (100, 100, 3)
 base_dir = 'G:\\My Drive\\Gaurang Files\\TMU\\Year 4\\AER 850 Intro to Machine Learning\\Project\\Project_2_GaurangK\\Data\\'
 train_dir = base_dir + 'Train'
 val_dir = base_dir + 'Validation'
 test_dir = base_dir + 'Test'
 
-def load_datasets(directory, image_size=(100, 100), label_mode='categorical'):
-    return tf.keras.utils.image_dataset_from_directory(
-        directory,
-        image_size=image_size,
-        label_mode=label_mode
-    )
+# Define ImageDataGenerators for training and validation
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    shear_range=0.1,
+    zoom_range=0.1,
+)
 
-train_ds = load_datasets(train_dir)
-val_ds = load_datasets(val_dir)
-test_ds = load_datasets(test_dir)
+val_datagen = ImageDataGenerator(rescale=1./255)
 
+# Connect the ImageDataGenerators to the respective directories
+train_generator = train_datagen.flow_from_directory(
+    train_dir,
+    target_size=image_shape[:2],
+    batch_size=32,
+    class_mode='categorical'
+)
+
+validation_generator = val_datagen.flow_from_directory(
+    val_dir,
+    target_size=image_shape[:2],
+    batch_size=32,
+    class_mode='categorical'
+)
+
+# Test data should not be augmented, just rescaled
+test_datagen = ImageDataGenerator(rescale=1./255)
+test_generator = test_datagen.flow_from_directory(
+    test_dir,
+    target_size=image_shape[:2],
+    batch_size=32,
+    class_mode='categorical',
+    shuffle=False  # Usually, we don't shuffle test data
+)
+
+# Model building function without the internal data augmentation layers
 def build_model(image_shape):
-    model = models.Sequential([
-        # Rescaling layer to normalize the pixel values
-        layers.Rescaling(1./255, input_shape=image_shape),
-        
-        # Data augmentation layers
-        layers.RandomFlip("horizontal"),
-        layers.RandomRotation(0.1),
-        layers.RandomZoom(0.2),
-        
+    model = models.Sequential([  
         # Convolutional and Pooling Layers
-        layers.Conv2D(96, (11, 11), strides=(4, 4), activation='relu', input_shape=image_shape, padding='same'),
+        layers.Conv2D(64, (11, 11), strides=(4, 4), activation='relu', input_shape=image_shape, padding='same'),
         layers.BatchNormalization(),
         layers.MaxPooling2D((3, 3), strides=(2, 2)),
-        layers.Conv2D(256, (5, 5), activation='relu', padding='same'),
+        layers.Conv2D(128, (5, 5), activation='relu', padding='same'),
         layers.BatchNormalization(),
         layers.MaxPooling2D((3, 3), strides=(2, 2)),
-        layers.Conv2D(384, (3, 3), activation='relu', padding='same'),
+        layers.Conv2D(64, (3, 3), activation='relu', padding='same'),
         layers.BatchNormalization(),
         layers.MaxPooling2D((3, 3), strides=(2, 2)),
         
@@ -47,34 +65,51 @@ def build_model(image_shape):
         layers.Flatten(),
         
         # Dense Layers with L2 Regularization
-        layers.Dense(4096, activation='relu', kernel_regularizer=l2(0.01)),
+        layers.Dense(2048, activation='relu', kernel_regularizer=l2(0.01)),
         layers.Dropout(0.5),
-        layers.Dense(4096, activation='relu', kernel_regularizer=l2(0.01)),
-        layers.Dropout(0.5),
-        
+     
         # Output Layer
         layers.Dense(4, activation='softmax')
     ])
     
     return model
 
-# Define the image shape and number of classes
 image_shape = (100, 100, 3)
 num_classes = 4
 
+# Assuming build_model is defined as in the previous message
+
 # Build the DenseNet model
 model_1 = build_model(image_shape)
-model_1.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+# Specify the learning rate
+learning_rate = 0.01  # You can adjust this value
+
+# Create an Adam optimizer with the given learning rate
+adam_optimizer = Adam(learning_rate=learning_rate)
+        
+# Compile the model
+model_1.compile(optimizer=adam_optimizer, 
+                loss='categorical_crossentropy', 
+                metrics=['accuracy'])
+
+# Model summary
 model_1.summary()
 
-#model_1 = build_model(image_shape)
-#model_1.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-#model_1.summary()
+# Training the model using the data generators
+history = model_1.fit(
+    train_generator,
+    steps_per_epoch=train_generator.samples//train_generator.batch_size,
+    validation_data=validation_generator,
+    validation_steps=validation_generator.samples//validation_generator.batch_size,
+    epochs=5
+)
 
-# Training the model
-history = model_1.fit(train_ds, validation_data=val_ds, epochs=10)
+# Save the model
+model_save_path = 'G:\My Drive\Gaurang Files\TMU\Year 4\AER 850 Intro to Machine Learning\Project\Project_2_GaurangK\Model_100_epoch'  
+model_1.save(model_save_path)
 
-# Plotting the training and validation loss
+# Plotting the training and validation loss and accuracy
 def plot_loss_accuracy(history):
     train_loss = history.history['loss']
     val_loss = history.history['val_loss']
@@ -102,7 +137,7 @@ def plot_loss_accuracy(history):
 
 plot_loss_accuracy(history)
 
-# Evaluate the model on the test set
-test_loss, test_accuracy = model_1.evaluate(test_ds)
+# Evaluate the model on the test set using the test generator
+test_loss, test_accuracy = model_1.evaluate(test_generator)
 print(f"Test Loss: {test_loss}")
 print(f"Test Accuracy: {test_accuracy}")
